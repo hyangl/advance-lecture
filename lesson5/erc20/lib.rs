@@ -57,11 +57,6 @@ mod erc20 {
                 balances: balances,
                 allowances: StorageHashMap::new(),
             };
-            Self::env().emit_event(Transfer {
-                from: caller,
-                to: caller,
-                value: total_supply,
-            });
             instance
         }
 
