@@ -38,6 +38,7 @@ mod erc20 {
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum Error {
         InsufficentBalance,
+        InsufficentAllowance,
 
     }
 
@@ -56,6 +57,11 @@ mod erc20 {
                 balances: balances,
                 allowances: StorageHashMap::new(),
             };
+            Self::env().emit_event(Transfer {
+                from: caller,
+                to: caller,
+                value: total_supply,
+            });
             instance
         }
 
@@ -83,13 +89,13 @@ mod erc20 {
         }
 
         fn transfer_help(&mut self, from: AccountId, to: AccountId, value: Balance) -> Result<()> {
-            let from_balance = self.balance_of(from);
-            if from_balance < value {
+            let _from_balance = self.balance_of(from);
+            if _from_balance < value {
                 return Err(Error::InsufficentBalance);
             }
-            self.balances.insert(from, from_balance - value);
-            let to_balance = self.balance_of(to);
-            self.balances.insert(to, to_balance + value);
+            self.balances.insert(from, _from_balance - value);
+            let _to_balance = self.balance_of(to);
+            self.balances.insert(to, _to_balance + value);
 
             Self::env().emit_event(Transfer{
                 from: from,
@@ -104,18 +110,16 @@ mod erc20 {
         pub fn transfer_from(&mut self, from: AccountId, to: AccountId, value: Balance) -> Result<()> {
             let who = Self::env().caller();
 
-            let allowance_balance = self.allowance(from, who);
-            if allowance_balance < value {
-                return Err(Error::InsufficentBalance)
-            }
-            let from_balance = self.balance_of(from);
-            let to_balance = self.balance_of(to);
-            let rt = self.transfer_help(from, to, value);
-            if let Ok(()) = rt {
-                self.allowances.insert((from, to), allowance_balance - value);
+            let _allowance_balance = self.allowance(from, who);
+            if _allowance_balance < value {
+                return Err(Error::InsufficentAllowance)
             }
 
-            rt
+            self.transfer_help(from, to, value)?;
+
+            self.allowances.insert((from, who), _allowance_balance - value);
+
+            Ok(())
         }
 
         #[ink(message)]
@@ -142,11 +146,54 @@ mod erc20 {
     mod tests {
         /// Imports all the definitions from the outer scope so we can use them here.
         use super::*;
+        use ink_env;
 
-        #[test]
+        use ink_lang as ink;
+
+        #[ink::test]
         fn create_contract_works() {
             let erc20 = Erc20::new(1000);
             assert_eq!(erc20.total_supply(), 1000);
+        }
+
+        #[ink::test]
+        fn balance_of_works() {
+            let erc20 = Erc20::new(1000);
+            let accounts = ink_env::test::default_accounts::<ink_env::DefaultEnvironment>()
+                .expect("Cannot get accounts");
+            assert_eq!(erc20.balance_of(accounts.alice), 1000);
+            assert_eq!(erc20.balance_of(accounts.bob), 0);
+        }
+
+        #[ink::test]
+        fn transfer_works() {
+            let mut erc20 = Erc20::new(1000);
+            let accounts = ink_env::test::default_accounts::<ink_env::DefaultEnvironment>()
+                .expect("Cannot get accounts");
+
+            assert_eq!(erc20.transfer(accounts.bob, 100), Ok(()));
+            assert_eq!(erc20.balance_of(accounts.bob), 100);
+        }
+
+        #[ink::test]
+        fn tranfer_failed_insufficent() {
+            let mut erc20 = Erc20::new(1000);
+            let accounts = ink_env::test::default_accounts::<ink_env::DefaultEnvironment>()
+                .expect("Cannot get accounts");
+
+            assert_eq!(erc20.transfer(accounts.bob, 100), Ok(()));
+            assert_eq!(erc20.transfer(accounts.bob, 1000), Err(Error::InsufficentBalance));
+        }
+
+        #[ink::test]
+        fn tranfer_approve_work() {
+            let mut erc20 = Erc20::new(1000);
+            let accounts = ink_env::test::default_accounts::<ink_env::DefaultEnvironment>()
+                .expect("Cannot get accounts");
+
+            assert_eq!(erc20.approve(accounts.bob, 500), Ok(()));
+            assert_eq!(erc20.allowance(accounts.alice, accounts.bob), 500);
+            assert_eq!(erc20.allowance(accounts.bob, accounts.alice), 0);
         }
 
     }
